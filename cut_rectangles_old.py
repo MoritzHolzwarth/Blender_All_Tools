@@ -71,8 +71,8 @@ def get_face_center_point(face):
 ############################################################################################################
 
 
-def get_closest_verts(bm, lstInitCoords, lstNewVerts, min_dist):
-    print("Running get_closest_verts()")
+def poke_and_get_closest_verts(bm, lstInitCoords, lstNewVerts, min_dist):
+    print("Running poke_and_get_closest_verts()")
     
     bvh = mathutils.bvhtree.BVHTree.FromBMesh(bm)
     
@@ -274,7 +274,25 @@ def get_mean_vector(lst_vectors):
 ##############################################################################################
 
 
-def cut_rectangle(init_coords, context,): #Four corners in clockwise order
+def make_selection_flat(bm, normalAxis):
+    print("Running make_selection_flat()")
+    
+    lstSelectedVerts = [v for v in bm.verts if v.select]
+    if len(lstSelectedVerts) == 0:
+        return
+    mean_normal_value = 0
+    for v in lstSelectedVerts:
+        mean_normal_value += v.co[normalAxis]
+    
+    mean_normal_value /= len(lstSelectedVerts)
+    for v in lstSelectedVerts:
+        if any(edg.is_boundary for edg in v.link_edges):
+            continue
+        v.co[normalAxis] = mean_normal_value
+#################################################################################################
+
+
+def cut_rectangle(init_coords, context, normalAxis): #Four corners in clockwise order
     print("Running cut_rectangle()")
    
     
@@ -296,7 +314,7 @@ def cut_rectangle(init_coords, context,): #Four corners in clockwise order
     lstNewVerts = []
     min_dist = 0.0001
 
-    if not get_closest_verts(bm, init_coords, lstNewVerts, min_dist):
+    if not poke_and_get_closest_verts(bm, init_coords, lstNewVerts, min_dist):
         bmesh.update_edit_mesh(mesh)
         bm.free()
         return
@@ -314,20 +332,20 @@ def cut_rectangle(init_coords, context,): #Four corners in clockwise order
         projectPath(setPathVerts, startVrt.co, endVrt.co, context.scene.distance_tolerance, setProblemVerts)
         lstOfPathVrtSets.append(setPathVerts)
     
-    if len(setPathVerts) > 0:
-        print("Aborted Program due to Problematic Vert Moves!")
-        for v in bm.verts:
-            if v in setProblemVerts:
-                v.select = True
-            else:
-                v.select = False
-        bmesh.update_edit_mesh(mesh)
-        bm.free()
-        frame_selected(context,object)
-        return
+    if len(setProblemVerts) == 0:
+        print("No problematic Vert Moves :)")
+#Selecting the loop's inner region (works based on edge selection)
+        bpy.ops.mesh.loop_to_region()
+        make_selection_flat(bm, normalAxis)
+    else:
+        print("Problematic Vert Moves: ", len(setProblemVerts))
     
-#Undo the Triangulation for the whole mesh, execpt for faces touching the rectangle path
-#Select all faces touching the rectangle path
+        
+    bmesh.update_edit_mesh(mesh)
+    return
+    
+    #Undo the Triangulation for the whole mesh, execpt for faces touching the rectangle path
+    #Select all faces touching the rectangle path
     for setPathVerts in lstOfPathVrtSets:
         for v in setPathVerts:
             for f in v.link_faces:
@@ -358,10 +376,21 @@ def cut_rectangle(init_coords, context,): #Four corners in clockwise order
 ########################################################################################################################################
 
 
-def get_rectangle_coords(corner1Pair, canonicalBasis):
+def main(self, context):
+    print("Running main")
+    
+    # A = mathutils.Vector((-0.38, 0.471, 0.01))
+    # B = mathutils.Vector((0.51, 0.57, -0.2))
+    # C = mathutils.Vector((0.84, -0.22, -0.3))
+    # D = mathutils.Vector((-0.6, -0.8, 0))
+    xvec = mathutils.Vector((1,0,0))
+    yvec = mathutils.Vector((0,1,0))
+    zvec = mathutils.Vector((0,0,1))
+    canonicalBasis = [xvec,yvec,zvec]
 
-    corner1 = corner1Pair[0]
-    corner2 = corner1Pair[1]
+    corner1 = mathutils.Vector((0,0,1.75)) - 0.02*zvec    #After closer inspectino, it appears that I calculated the z-values in this model 2 cm to high
+    corner2 = mathutils.Vector((0,0.3,2.05)) - 0.02*zvec
+    
     minCoords = mathutils.Vector((min(corner1.x, corner2.x), min(corner1.y, corner2.y), min(corner1.z, corner2.z)))
     maxCoords = mathutils.Vector((max(corner1.x, corner2.x), max(corner1.y, corner2.y), max(corner1.z, corner2.z)))
     minmaxCoords_Diff = maxCoords - minCoords
@@ -381,47 +410,9 @@ def get_rectangle_coords(corner1Pair, canonicalBasis):
     B = A + minmaxCoords_Diff[axis1]*canonicalBasis[axis1]
     D = A + minmaxCoords_Diff[axis2]*canonicalBasis[axis2]
     C = maxCoords
-    return [A,B,C,D]
-############################################################################################################################
-
-
-def frame_selected(context, object):
-
-    for area in context.screen.areas:
-        if area.type == 'VIEW_3D':
-            for region in area.regions:
-                if region.type == 'WINDOW':
-                    override = {
-                        'area': area,
-                        'region': region,
-                        'edit_object': object
-                    }
-                    bpy.ops.view3d.view_selected(override)
-                    return
     
-    print("Warning! frame_selected() failed!")
-############################################################################################
-
-
-def main(self, context):
-    print("Running main")
-    
-    #Coords just for testing
-    # A = mathutils.Vector((-0.38, 0.471, 0.01))
-    # B = mathutils.Vector((0.51, 0.57, -0.2))
-    # C = mathutils.Vector((0.84, -0.22, -0.3))
-    # D = mathutils.Vector((-0.6, -0.8, 0))
-    xvec = mathutils.Vector((1,0,0))
-    yvec = mathutils.Vector((0,1,0))
-    zvec = mathutils.Vector((0,0,1))
-    canonicalBasis = [xvec,yvec,zvec]
-
-    lstCornerPairs = get_corner_pairs()
-    for cornerPair in lstCornerPairs:
-        cut_rectangle(get_rectangle_coords(cornerPair,canonicalBasis), context)
-
-    
-    print("finished main")
+    cut_rectangle([A,B,C,D], context, normalAxis)
+    print("finished")
 ###########################################################
     
 
