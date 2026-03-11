@@ -458,4 +458,5 @@ def unregister():
     bpy.utils.unregister_class(VIEW3D_PT_cut_Rectangles)
     bpy.utils.unregister_class(MESH_OT_cut_Rectangles)
 
+
 register()
